@@ -22,7 +22,7 @@ Forked from tests/test_target.py.
 
 import os
 from unittest import TestCase
-from devlib import AndroidTarget, LinuxTarget, LocalLinuxTarget
+from devlib import AndroidTarget, LinuxTarget, LocalLinuxTarget, QEMULinuxTarget
 from devlib.utils.misc import get_random_string
 
 class TestReadTreeValues(TestCase):
@@ -84,3 +84,15 @@ if __name__ == '__main__':
     print(f'{ll_target.__class__.__name__}: removing {ll_target.working_directory}...')
     ll_target.remove(ll_target.working_directory)
 
+    q_target = QEMULinuxTarget(kernel_image='/home/user/devlib/tools/buildroot/buildroot-aarch64-v2023.11.1/output/images/Image',
+                               connection_settings={'host': '127.0.0.1',
+                                                    'port': 8022,
+                                                    'username': 'root',
+                                                    'password': 'root',
+                                                    'strict_host_check': False},
+                               working_directory='/tmp/devlib-target')
+    print(f'{q_target.__class__.__name__}: {q_target.os}/{q_target.hostname}')
+    TestReadTreeValues().test_read_multiline_values(q_target)
+    print(f'{q_target.__class__.__name__}: removing {q_target.working_directory}...')
+    q_target.remove(q_target.working_directory)
+    q_target.execute('poweroff')

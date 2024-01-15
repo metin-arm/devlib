@@ -780,6 +780,47 @@ Android Target
    support the majority of newer devices.
 
 
+QEMU Linux Target
+---------------
+
+.. class:: QEMULinuxTarget(kernel_image, connection_settings=None, platform=None, working_directory=None, executables_directory=None, connect=True, modules=None, load_default_modules=True, shell_prompt=DEFAULT_SHELL_PROMPT, max_async=50, arch='aarch64', cpu_types='-cpu cortex-a72', initrd_image=str(), mem_size=512, num_cores=2, num_threads=2, cmdline='console=ttyAMA0', enable_kvm=True, boot_timeout=60)
+
+    :class:`QEMULinuxTarget` is a subclass of :class:`LinuxTarget` with
+    additional features necessary for launching an emulated Linux guest on QEMU.
+    It implements :meth:`wait_boot_complete` to ensure spinned guest can show
+    login prompt in :param:`boot_timeout` seconds.
+
+    :param kernel_image: This is the location of kernel image
+        (e.g., ``bzImage``) which will be used as target's kernel.
+
+    :param arch: Architecture type. Defaults to ``aarch64``.
+
+    :param cpu_types: List of CPU ids for QEMU. Defaults to ``-cpu cortex-a72``.
+        Valid only for Arm architectures.
+
+    :param initrd_image: This is an optional parameter which points to the
+        location of initrd image (e.g., ``rootfs.cpio.xz``) which will be used
+        as target's root filesystem if kernel does not include one already.
+
+    :param mem_size: Size of guest memory in MiB.
+
+    :param num_cores: Number of CPU cores. Guest will have ``2`` cores in
+        default settings.
+
+    :param num_threads: Number of CPU threads. Set to ``2`` by defaults.
+
+    :param cmdline: Kernel command line parameter. It only specifies console
+        device in default (i.e., ``console=ttyAMA0``) which is valid for Arm
+        architectures. It should be changed to ``ttyS0`` for x86 platforms.
+
+    :param enable_kvm: Specifies if KVM will be used as accelerator in QEMU
+        or not. Valid only for x86 architectures. Enabled by default for
+        improving QEMU performance.
+
+    :param boot_timeout: Timeout for login prompt of guest in seconds.
+        It's set to ``60`` seconds by default.
+
+
 ChromeOS Target
 ---------------
 

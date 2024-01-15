@@ -21,9 +21,12 @@ import gzip
 import glob
 import os
 import re
+import sys
+import shutil
 import time
 import logging
 import posixpath
+import select
 import subprocess
 import tarfile
 import tempfile
@@ -56,7 +59,7 @@ from devlib.exception import (DevlibTransientError, TargetStableError,
 from devlib.utils.ssh import SshConnection
 from devlib.utils.android import AdbConnection, AndroidProperties, LogcatMonitor, adb_command, INTENT_FLAGS
 from devlib.utils.misc import memoized, isiterable, convert_new_lines, groupby_value
-from devlib.utils.misc import commonprefix, merge_lists
+from devlib.utils.misc import get_subprocess, commonprefix, merge_lists
 from devlib.utils.misc import ABI_MAP, get_cpu_name, ranges_to_list
 from devlib.utils.misc import batch_contextmanager, tls_property, _BoundTLSProperty, nullcontext
 from devlib.utils.misc import safe_extract
@@ -2891,6 +2894,99 @@ class LocalLinuxTarget(LinuxTarget):
         self._file_transfer_cache = self.path.join(self.working_directory, '.file-cache')
         if self.executables_directory is None:
             self.executables_directory = '/tmp/devlib-target/bin'
+
+class QEMULinuxTarget(LinuxTarget):
+    '''
+    Class for launching Linux target on QEMU.
+    '''
+
+    # pylint: disable=too-many-locals,too-many-arguments
+    def __init__(self,
+                 kernel_image,
+                 connection_settings=None,
+                 platform=None,
+                 working_directory=None,
+                 executables_directory=None,
+                 connect=True,
+                 modules=None,
+                 load_default_modules=True,
+                 shell_prompt=DEFAULT_SHELL_PROMPT,
+                 max_async=50,
+                 arch='aarch64',
+                 cpu_types='-cpu cortex-a72',
+                 initrd_image=str(),
+                 mem_size=512,
+                 num_cores=2,
+                 num_threads=2,
+                 cmdline='console=ttyAMA0',
+                 enable_kvm=True,
+                 boot_timeout=60,
+                 ):
+        super().__init__(connection_settings=connection_settings,
+                         platform=platform,
+                         working_directory=working_directory,
+                         executables_directory=executables_directory,
+                         connect=False,
+                         modules=modules,
+                         load_default_modules=load_default_modules,
+                         shell_prompt=shell_prompt,
+                         conn_cls=SshConnection,
+                         max_async=max_async)
+
+        qemu_executable = f'qemu-system-{arch}'
+        qemu_path = shutil.which(qemu_executable)
+        if qemu_path is None:
+            raise FileNotFoundError(f'Cannot find {qemu_executable} executable!')
+
+        if not os.path.exists(kernel_image):
+            raise FileNotFoundError(f'{kernel_image} does not exist!')
+
+        qemu_cmd = f'sudo {qemu_path} -kernel {kernel_image} -append "{cmdline}" ' \
+                   f'-smp cores={num_cores},threads={num_threads} -m {mem_size} ' \
+                   f'-netdev user,id=net0,hostfwd=tcp::{connection_settings["port"]}-:22 ' \
+                   '-device virtio-net-pci,netdev=net0 --nographic'
+
+        if initrd_image:
+            if not os.path.exists(initrd_image):
+                raise FileNotFoundError(f'{initrd_image} does not exist!')
+            qemu_cmd = f'{qemu_cmd} -initrd {initrd_image}'
+
+        if arch.startswith('x86'):
+            qemu_cmd = f'{qemu_cmd} {"--enable-kvm" if enable_kvm else ""}'
+        else:
+            qemu_cmd = f'{qemu_cmd} -machine virt {cpu_types}'
+
+        self.logger.debug('qemu_cmd: %s', qemu_cmd)
+
+        try:
+            self.qemu_process = get_subprocess(qemu_cmd, shell=True)
+        except Exception as ex:
+            raise HostError(f'Error while running "{qemu_cmd}": {ex}') from ex
+
+        self.wait_boot_complete(timeout=boot_timeout)
+
+        if connect:
+            super().connect(check_boot_completed=False)
+
+    def wait_boot_complete(self, timeout=10):
+        start_time = time.time()
+        boot_completed = False
+        poll_obj = select.poll()
+        poll_obj.register(self.qemu_process.stdout, select.POLLIN)
+
+        while not boot_completed and timeout >= (time.time() - start_time):
+            poll_result = poll_obj.poll(0)
+            if poll_result:
+                line = self.qemu_process.stdout.readline().rstrip(b'\r\n')
+                line = line.decode(sys.stdout.encoding or 'utf-8', "replace") if line else ''
+                self.logger.debug(line)
+                if 'Welcome to Buildroot' in line:
+                    self.logger.debug('Target is ready.')
+                    boot_completed = True
+                    break
+
+        if not boot_completed:
+            raise TargetStableError(f'Target could not finish boot up in {timeout} seconds!')
 
 
 def _get_model_name(section):

@@ -9,6 +9,8 @@ There are currently four target interfaces:
 - :class:`~devlib.target.ChromeOsTarget`: for interacting with ChromeOS devices
   over SSH, and their Android containers over adb.
 - :class:`~devlib.target.LocalLinuxTarget`: for interacting with the local Linux host.
+- :class:`~devlib.target.QEMULinuxTarget`: for interacting with an emulated Linux
+  target on QEMU.
 
 They all work in more-or-less the same way, with the major difference being in
 how connection settings are specified; though there may also be a few APIs

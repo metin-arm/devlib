@@ -19,7 +19,7 @@ Initializations for devlib module
 
 from devlib.target import (
         Target, LinuxTarget, AndroidTarget, LocalLinuxTarget,
-        ChromeOsTarget,
+        ChromeOsTarget, QEMULinuxTarget,
 )
 
 from devlib.host import (
