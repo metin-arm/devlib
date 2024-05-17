@@ -15,11 +15,24 @@
 # WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
-# Forked from https://github.com/ARM-software/lisa/blob/main/install_base.sh
-#
+
+# Script to install the depenencies for LISA & devlib on an Ubuntu-like system.
 
 # shellcheck disable=SC2317
+
+if [[ -z ${LISA_HOME:-} ]]; then
+    ANDROID_HOME="$(dirname "${BASH_SOURCE[0]}")/android-sdk-linux"
+    export ANDROID_HOME
+fi
+export ANDROID_USER_HOME="${ANDROID_HOME}/.android"
+
+ANDROID_CMDLINE_VERSION=${ANDROID_CMDLINE_VERSION:-"11076708"}
+
+# Android SDK is picky on Java version, so we need to set JAVA_HOME manually.
+# In most distributions, Java is installed under /usr/lib/jvm so use that.
+# according to the distribution
+ANDROID_SDK_JAVA_VERSION=17
+
 
 # Read standard /etc/os-release file and extract the needed field lsb_release
 # binary is not installed on all distro, but that file is found pretty much
@@ -54,13 +67,15 @@ get_android_sdk_host_arch() {
     echo "${arch}"
 }
 
-ANDROID_HOME="$(dirname "${0}")/android-sdk-linux"
-export ANDROID_HOME
-export ANDROID_USER_HOME="${ANDROID_HOME}/.android"
+# No need for the whole SDK for this one
+install_android_platform_tools() {
+    echo "Installing Android Platform Tools ..."
 
-mkdir -p "${ANDROID_HOME}/cmdline-tools"
+    local url="https://dl.google.com/android/repository/platform-tools-latest-linux.zip"
 
-ANDROID_CMDLINE_VERSION=${ANDROID_CMDLINE_VERSION:-"11076708"}
+    echo "Downloading Android Platform Tools from: ${url}"
+    wget -qO- "${url}" | bsdtar -xf- -C "${ANDROID_HOME}/"
+}
 
 cleanup_android_home() {
     echo "Cleaning up Android SDK: ${ANDROID_HOME}"
@@ -86,14 +101,12 @@ install_android_sdk_manager() {
 
     yes | (call_android_sdkmanager --licenses || true)
 
-    echo "Creating the link to skins directory..."
-    readlink "${ANDROID_HOME}/skins" > /dev/null 2>&1 || ln -sf "../skins" "${ANDROID_HOME}/skins"
+    if [[ -z ${LISA_HOME:-} ]]; then
+        echo "Creating the link to skins directory..."
+        readlink "${ANDROID_HOME}/skins" > /dev/null 2>&1 || ln -sf "../skins" "${ANDROID_HOME}/skins"
+    fi
 }
 
-# Android SDK is picky on Java version, so we need to set JAVA_HOME manually.
-# In most distributions, Java is installed under /usr/lib/jvm so use that.
-# according to the distribution
-ANDROID_SDK_JAVA_VERSION=17
 find_java_home() {
     _JAVA_BIN=$(find -L /usr/lib/jvm -path "*${ANDROID_SDK_JAVA_VERSION}*/bin/java" -not -path '*/jre/bin/*' -print -quit)
     _JAVA_HOME=$(dirname "${_JAVA_BIN}")/../
@@ -117,16 +130,20 @@ call_android_avdmanager() {
 
 # Needs install_android_sdk_manager first
 install_android_tools() {
-    local android_sdk_host_arch
-    android_sdk_host_arch=$(get_android_sdk_host_arch)
-
     yes | call_android_sdkmanager --verbose --channel=0 --install "platform-tools"
-    yes | call_android_sdkmanager --verbose --channel=0 --install "platforms;android-31"
-    yes | call_android_sdkmanager --verbose --channel=0 --install "platforms;android-33"
-    yes | call_android_sdkmanager --verbose --channel=0 --install "platforms;android-34"
-    yes | call_android_sdkmanager --verbose --channel=0 --install "system-images;android-31;google_apis;${android_sdk_host_arch}"
-    yes | call_android_sdkmanager --verbose --channel=0 --install "system-images;android-33;android-desktop;${android_sdk_host_arch}"
-    yes | call_android_sdkmanager --verbose --channel=0 --install "system-images;android-34;google_apis;${android_sdk_host_arch}"
+    if [[ -z ${LISA_HOME:-} ]]; then
+        local android_sdk_host_arch
+        android_sdk_host_arch=$(get_android_sdk_host_arch)
+
+        yes | call_android_sdkmanager --verbose --channel=0 --install "platforms;android-31"
+        yes | call_android_sdkmanager --verbose --channel=0 --install "platforms;android-33"
+        yes | call_android_sdkmanager --verbose --channel=0 --install "platforms;android-34"
+        yes | call_android_sdkmanager --verbose --channel=0 --install "system-images;android-31;google_apis;${android_sdk_host_arch}"
+        yes | call_android_sdkmanager --verbose --channel=0 --install "system-images;android-33;android-desktop;${android_sdk_host_arch}"
+        yes | call_android_sdkmanager --verbose --channel=0 --install "system-images;android-34;google_apis;${android_sdk_host_arch}"
+    else
+        yes | call_android_sdkmanager --verbose --channel=0 --install "build-tools;34.0.0"
+    fi
 }
 
 create_android_vds() {
@@ -167,20 +184,106 @@ install_pacman() {
     sudo pacman -Sy --needed --noconfirm "${pacman_packages[@]}" || exit $?
 }
 
+common_packages=(
+    coreutils
+    qemu-user-static
+    wget
+)
+
 # APT-based distributions like Ubuntu or Debian
-apt_packages=(
+apt_packages=("${common_packages[@]}")
+apt_packages+=(
     cpu-checker
     libarchive-tools
-    wget
-    unzip
-    qemu-user-static
 )
 
 # pacman-based distributions like Archlinux or its derivatives
-pacman_packages=(
+pacman_packages=("${common_packages[@]}")
+pacman_packages+=(
     libarchive
-    qemu-user-static
 )
+
+if [[ -n ${LISA_HOME:-} ]]; then
+    common_packages=(
+        git
+        kernelshark
+        rsync
+        sshpass
+    )
+
+    apt_packages+=("${common_packages[@]}")
+    apt_packages+=(
+        build-essential
+        openssh-client
+        python3
+        # venv is not installed by default on Ubuntu, even though it is part of the
+        # Python standard library
+        python3-pip
+        python3-venv
+        python3-tk
+        python3-setuptools
+    )
+
+    pacman_packages+=("${common_packages[@]}")
+    pacman_packages+=(
+        base-devel
+        openssh
+        python
+        python-pip
+        python-setuptools
+    )
+
+    # ABI-specific packages
+    HOST_ARCH="$(uname -m)"
+    case ${HOST_ARCH} in
+        aarch64)
+            # Allows building C extensions from sources, when they do not ship a
+            # prebuilt wheel for that arch
+            apt_packages+=(python3-dev)
+            ;;
+    esac
+
+    lower_or_equal() {
+        local x
+        local y
+
+        x=$(printf "%s" "$1" | sed 's/\.//2g')
+        y=$(printf "%s" "$2" | sed 's/\.//2g')
+        [[ "$(printf "%s\n%s\n" "${x}", "${y}" | sort -g | head -1)" == "${x}" ]]
+    }
+
+    register_pip_extra_requirements() {
+        local requirements="${LISA_HOME}/extra_requirements.txt"
+        local devmode_requirements="${LISA_HOME}/devmode_extra_requirements.txt"
+
+        echo "Registering extra Python pip requirements in $requirements:"
+        local content
+        content=$(printf "%s\n" "${pip_extra_requirements[@]}")
+        printf "%s\n\n" "$content" | tee "$requirements"
+
+        # All the requirements containing "./" are prefixed with "-e " to install
+        # them in editable mode
+        printf "%s\n\n" "$(printf "%s" "$content" | sed '/.\//s/^/-e /')" > "$devmode_requirements"
+    }
+
+    # More recent versions of Ubuntu ship firefox as a snap package already
+    # containing the geckodriver
+    if test_os_release NAME "Ubuntu" && lower_or_equal "$(read_os_release VERSION_ID)" "22"; then
+        # In order to save plots using bokeh, we need a browser usable with
+        # selenium, along with its selenium driver.
+        #
+        # Note: firefox seems to cope well without X11, unlike chromium.
+        apt_packages+=(firefox-geckodriver)
+    fi
+
+    # Extra Python pip requirements, to be installed by lisa-install
+    pip_extra_requirements=()
+
+    # Array of functions to call in order
+    install_functions=(
+        register_pip_extra_requirements
+    )
+fi
 
 # Detection based on the package-manager, so that it works on derivatives of
 # distributions we expect. Matching on distro name would prevent that.
@@ -207,16 +310,23 @@ fi
 
 usage() {
     echo "Usage: ${0} [--help] [--cleanup-android-sdk] [--install-android-tools]
-    [--install-android-platform-tools] [--create-avds] [--install-all]"
+    [--install-android-platform-tools] [--install-doc-extras] [--create-avds]
+    [--install-tests-extra] [--install-bisector-dbus] [--install-toolchains]
+    [--install-vagrant] [--install-all]"
     cat << EOF
 
-Install distribution packages and other bits required by Android emulator.
-Archlinux and Ubuntu are supported, although derivative distributions will
-probably work as well.
+Install distribution packages and other bits that don't fit in the Python
+venv managed by lisa-install. Archlinux and Ubuntu are supported, although
+derivative distributions will probably work as well.
 
 --install-android-platform-tools is not needed when using
 --install-android-tools, but has the advantage of not needing a Java
 installation and is quicker to install.
+
+Note that install-android-platform-tools, install-doc-extras, install-tests-extras,
+install-toolchains, install-vagrant, install-kernel-build-dependencies, and
+install-bisector-dbus parameters are LISA specific.
+
 EOF
 }
 
@@ -239,7 +349,7 @@ for arg in "${args[@]}"; do
         handled=1
         ;;&
 
-    "--install-android-tools" | "--install-all")
+    "--install-android-sdk" | "--install-android-tools" | "--install-all")
         install_functions+=(
             find_java_home
             install_android_sdk_manager
@@ -247,7 +357,93 @@ for arg in "${args[@]}"; do
         )
         apt_packages+=(openjdk-"${ANDROID_SDK_JAVA_VERSION}"-jre openjdk-"${ANDROID_SDK_JAVA_VERSION}"-jdk)
         pacman_packages+=(jre"${ANDROID_SDK_JAVA_VERSION}"-openjdk jdk"${ANDROID_SDK_JAVA_VERSION}"-openjdk)
-        handled=1;
+        handled=1
+        ;;&
+
+    # Not part of --install-all since that is already satisfied by
+    # --install-android-tools The advantage of that method is that it does not
+    # require the Java JDK/JRE to be installed, and is a bit quicker. However,
+    # it will not provide the build-tools which are needed by devlib.
+    "--install-android-platform-tools")
+        if [[ -n ${LISA_HOME:-} ]]; then
+            install_functions+=(install_android_platform_tools)
+            handled=1
+        fi
+        ;;&
+
+    "--install-doc-extras" | "--install-all")
+        if [[ -n ${LISA_HOME:-} ]]; then
+            apt_packages+=(plantuml graphviz pandoc)
+            # plantuml can be installed from the AUR
+            pacman_packages+=(graphviz pandoc)
+            handled=1
+        fi
+        ;;&
+
+    # Requirement for LISA's self tests (in tests/ folder), not the synthetic kernel tests.
+    "--install-tests-extras" | "--install-all")
+        if [[ -n ${LISA_HOME:-} ]]; then
+            apt_packages+=(clang)
+            pacman_packages+=(clang)
+            handled=1
+        fi
+        ;;&
+
+    "--install-toolchains" | "--install-all")
+        if [[ -n ${LISA_HOME:-} ]]; then
+            apt_packages+=(build-essential gcc-arm-linux-gnueabi gcc-aarch64-linux-gnu)
+            # arm-linux-gnueabihf-gcc can be installed from the AUR
+            pacman_packages+=(base-devel aarch64-linux-gnu-gcc flex)
+
+            # Build dependencies of some assets
+            apt_packages+=(autopoint autoconf libtool bison flex cmake)
+            # gettext for autopoint
+            pacman_packages+=(gettext autoconf libtool bison cmake)
+
+            handled=1
+        fi
+        ;;&
+
+    "--install-vagrant" | "--install-all")
+        if [[ -n ${LISA_HOME:-} ]]; then
+            # Only install the package if we are not already inside the VM to save some time
+            vm=$(systemd-detect-virt 2>/dev/null || true)
+            if [[ "${vm}" == "oracle" ]]; then
+                echo "VirtualBox detected, not installing virtualbox apt packages" >&2
+            elif [[ "${HOST_ARCH}" == "aarch64" ]]; then
+                echo "VirtualBox not supported on ${HOST_ARCH}" >&2
+            else
+                apt_packages+=(vagrant virtualbox)
+                pacman_packages+=(vagrant virtualbox virtualbox-host-dkms)
+            fi
+
+            handled=1
+        fi
+        ;;&
+
+    "--install-kernel-build-dependencies" | "--install-all")
+        if [[ -n ${LISA_HOME:-} ]]; then
+            apt_packages+=(build-essential gcc bc bison flex libssl-dev libncurses5-dev libelf-dev)
+            handled=1
+        fi
+        ;;&
+
+    "--install-bisector-dbus")
+        if [[ -n ${LISA_HOME:-} ]]; then
+            apt_packages+=(
+                gobject-introspection
+                # Some of that seems to only be needed on some version of Ubuntu.
+                # GTK/Glib does not shine on packaging side, so ere on the side of
+                # caution and install all the things that seem to avoid issues ...
+                libcairo2-dev
+                libgirepository1.0-dev
+                gir1.2-gtk-3.0
+            )
+            # plantuml can be installed from the AUR
+            pacman_packages+=(gobject-introspection)
+            pip_extra_requirements+=("${LISA_HOME}/tools/bisector[dbus]")
+            handled=1
+        fi
         ;;&
 
     "--create-avds" | "--install-all")
@@ -287,12 +483,22 @@ ordered_functions=(
     cleanup_android_home
     install_android_sdk_manager
     install_android_tools
-    create_android_vds
 )
+
+if [[ -z ${LISA_HOME:-} ]]; then
+    ordered_functions+=(create_android_vds)
+else
+    ordered_functions+=(
+        install_android_platform_tools
+        register_pip_extra_requirements
+    )
+fi
 
 # Remove duplicates in the list
 # shellcheck disable=SC2207
 install_functions=($(echo "${install_functions[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+
+mkdir -p "${ANDROID_HOME}/cmdline-tools"
 
 # Call all the hooks in the order of available_functions
 ret=0

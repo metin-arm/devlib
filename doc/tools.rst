@@ -5,7 +5,8 @@ Android
 -------
 
 ``tools/android/install_base.sh`` script installs Android command line tools
-for Linux and creates Android Virtual Devices (AVD).
+for Linux and creates Android Virtual Devices (AVD). It also has support for
+LISA packages if ``LISA_HOME`` environment variable is set.
 
 The script creates ``android-sdk-linux`` directory under ``tools/android`` and
 sets it as ``ANDROID_HOME`` directory (see
