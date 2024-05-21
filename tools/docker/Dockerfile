@@ -26,7 +26,9 @@ FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND noninteractive
 
-ENV DEVLIB_REF master
+ENV DEVLIB_REF reduce-docker-img
+
+ENV BUILDROOT_VERSION "2023.11.1"
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -58,7 +60,7 @@ RUN apt-get -y autoremove && \
     apt-get clean && \
     rm -rf /var/cache/apt
 
-RUN git clone -b ${DEVLIB_REF} -v https://github.com/ARM-software/devlib.git /devlib
+RUN git clone --depth=1 -b ${DEVLIB_REF} -v https://github.com/metin-arm/devlib.git /devlib
 RUN cd /devlib && \
     pip install --upgrade pip setuptools wheel && \
     pip install .[full]
@@ -75,3 +77,10 @@ RUN cd /devlib/tools/buildroot && \
     ./generate-kernel-initrd.sh && \
     ./generate-kernel-initrd.sh -a x86_64
 
+# Clean unused buildroot artifacts.
+RUN cd /devlib/tools/buildroot && \
+    mkdir artifacts && \
+    mv buildroot-v${BUILDROOT_VERSION}-aarch64/output/images artifacts/aarch64 && \
+    mv buildroot-v${BUILDROOT_VERSION}-x86_64/output/images artifacts/x86_64 && \
+    rm -rf buildroot-v${BUILDROOT_VERSION}-aarch64 && \
+    rm -rf buildroot-v${BUILDROOT_VERSION}-x86_64

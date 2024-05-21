@@ -27,7 +27,7 @@ target-configs:
     # aarch64 target
     QEMUTargetRunner:
       qemu_settings:
-        kernel_image: '/devlib/tools/buildroot/buildroot-v2023.11.1-aarch64/output/images/Image'
+        kernel_image: '/devlib/tools/buildroot/artifacts/aarch64/Image'
       ChromeOsTarget:
         connection_settings:
           device: 'emulator-5558'
@@ -38,7 +38,7 @@ target-configs:
       connection_settings:
         port: 8023
       qemu_settings:
-        kernel_image: '/devlib/tools/buildroot/buildroot-v2023.11.1-x86_64/output/images/bzImage'
+        kernel_image: '/devlib/tools/buildroot/artifacts/x86_64/bzImage'
         arch: 'x86_64'
         cmdline: 'console=ttyS0'
       ChromeOsTarget:

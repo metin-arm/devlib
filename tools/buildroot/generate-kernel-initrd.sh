@@ -83,7 +83,7 @@ function do_once
 
 function br_clone
 {
-	git clone -b ${BUILDROOT_VERSION} -v ${BUILDROOT_URI} "${BUILDROOT_DIR}"
+	git clone --depth=1 -b ${BUILDROOT_VERSION} -v ${BUILDROOT_URI} "${BUILDROOT_DIR}"
 }
 
 function br_apply_config
